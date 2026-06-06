@@ -1,0 +1,13 @@
+[mcp_servers.amos_sqlite]
+command = "python"
+args = ["-m", "amos.mcp"]
+cwd = "C:\\path\\to\\amos"
+env = { PYTHONPATH = "C:\\path\\to\\amos\\src", AMOS_STORAGE_BACKEND = "sqlite", AMOS_SQLITE_PATH = "C:\\path\\to\\amos\\.amos.sqlite3" }
+required = false
+
+[mcp_servers.amos_hybrid]
+command = "python"
+args = ["-m", "amos.mcp"]
+cwd = "C:\\path\\to\\amos"
+env = { PYTHONPATH = "C:\\path\\to\\amos\\src", AMOS_STORAGE_BACKEND = "hybrid", AMOS_POSTGRES_DSN = "postgresql://amos:amos@127.0.0.1:5432/amos", AMOS_REDIS_URL = "redis://127.0.0.1:6379/0", AMOS_NEO4J_URI = "bolt://127.0.0.1:7687", AMOS_NEO4J_USER = "neo4j", AMOS_NEO4J_PASSWORD = "amos-password" }
+required = false
