@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 from typing import Any
+import numpy as np
 
 from ..models import DomainEvent, Memory, Relationship, TemporalFact, to_dict
 from .codec import event_from_dict, fact_from_dict, memory_from_dict, relationship_from_dict
+from ..embeddings import get_default_embeddings, EmbeddingModel
 
 
 class PostgresStorage:
-    """Postgres source of truth for memories, temporal facts, and events."""
+    """Postgres source of truth for memories, temporal facts, and events with hybrid retrieval."""
 
-    def __init__(self, dsn: str, *, initialize: bool = True) -> None:
+    def __init__(
+        self,
+        dsn: str,
+        *,
+        initialize: bool = True,
+        embedding_model: EmbeddingModel | None = None
+    ) -> None:
         try:
             import psycopg
             from psycopg.rows import dict_row
@@ -20,6 +28,7 @@ class PostgresStorage:
         self._dict_row = dict_row
         self._jsonb = Jsonb
         self.dsn = dsn
+        self.embedding_model = embedding_model or get_default_embeddings()
         if initialize:
             self.initialize()
 
@@ -28,8 +37,24 @@ class PostgresStorage:
             cursor.execute(SCHEMA_SQL)
 
     def put(self, memory: Memory) -> None:
+        """Store memory with automatic embedding generation."""
         data = to_dict(memory)
-        params = {**data, "provenance": self._jsonb(data["provenance"]), "metadata": self._jsonb(data["metadata"])}
+        
+        # Generate embedding for the memory content
+        embedding = self.embedding_model.encode(memory.content)[0]
+        
+        # Calculate recency score (1.0 for new memories, decays over time)
+        from datetime import datetime, timezone
+        age_hours = (datetime.now(timezone.utc) - memory.created_at).total_seconds() / 3600
+        recency_score = max(0.0, 1.0 - (age_hours / (24 * 30)))  # Decay over 30 days
+        
+        params = {
+            **data,
+            "provenance": self._jsonb(data["provenance"]),
+            "metadata": self._jsonb(data["metadata"]),
+            "embedding": embedding.tolist(),
+            "recency_score": recency_score
+        }
         with self._connect() as connection, connection.cursor() as cursor:
             cursor.execute(UPSERT_MEMORY_SQL, params)
 
@@ -44,6 +69,98 @@ class PostgresStorage:
 
     def list(self, tenant_id: str) -> list[Memory]:
         rows = self._all("SELECT * FROM memories WHERE tenant_id = %s ORDER BY created_at DESC", (tenant_id,))
+        return [memory_from_dict(row) for row in rows]
+    
+    def search_hybrid(
+        self,
+        tenant_id: str,
+        query: str,
+        limit: int = 10,
+        *,
+        semantic_weight: float = 0.40,
+        heat_weight: float = 0.25,
+        recency_weight: float = 0.15,
+        graph_weight: float = 0.10,
+        diversity_weight: float = 0.10
+    ) -> list[Memory]:
+        """Hybrid retrieval combining semantic similarity, heat, recency, graph, and diversity.
+        
+        Args:
+            tenant_id: Tenant identifier
+            query: Search query
+            limit: Maximum number of results
+            semantic_weight: Weight for semantic similarity (default 0.40)
+            heat_weight: Weight for heat score (default 0.25)
+            recency_weight: Weight for recency score (default 0.15)
+            graph_weight: Weight for graph connectivity (default 0.10)
+            diversity_weight: Weight for type diversity (default 0.10)
+            
+        Returns:
+            List of memories ranked by hybrid score
+        """
+        # Generate query embedding
+        query_embedding = self.embedding_model.encode(query)[0]
+        
+        # Hybrid retrieval SQL with pgvector cosine similarity
+        sql = """
+        WITH memory_scores AS (
+            SELECT
+                m.*,
+                -- Semantic similarity (cosine distance, 0=identical, 2=opposite)
+                (1 - (m.embedding <=> %s::vector)) AS semantic_score,
+                -- Heat score (already normalized 0-1)
+                m.heat_score AS heat_score,
+                -- Recency score (already normalized 0-1)
+                COALESCE(m.recency_score, 0.0) AS recency_score,
+                -- Graph connectivity (count of relationships)
+                (
+                    SELECT COUNT(*)::float / 10.0  -- Normalize by dividing by 10
+                    FROM relationships r
+                    WHERE r.tenant_id = m.tenant_id
+                    AND (r.source = m.id::text OR r.target = m.id::text)
+                ) AS graph_score,
+                -- Type diversity bonus (prefer varied types)
+                CASE m.type
+                    WHEN 'FACT' THEN 0.3
+                    WHEN 'EPISODE' THEN 0.2
+                    WHEN 'PREFERENCE' THEN 0.15
+                    WHEN 'SKILL' THEN 0.15
+                    WHEN 'TASK' THEN 0.1
+                    WHEN 'GOAL' THEN 0.1
+                    ELSE 0.0
+                END AS diversity_score
+            FROM memories m
+            WHERE m.tenant_id = %s
+            AND m.embedding IS NOT NULL
+        )
+        SELECT *,
+            (
+                (%s * semantic_score) +
+                (%s * heat_score) +
+                (%s * recency_score) +
+                (%s * LEAST(graph_score, 1.0)) +
+                (%s * diversity_score)
+            ) AS hybrid_score
+        FROM memory_scores
+        WHERE semantic_score > 0.3  -- Filter out very dissimilar results
+        ORDER BY hybrid_score DESC
+        LIMIT %s
+        """
+        
+        rows = self._all(
+            sql,
+            (
+                query_embedding.tolist(),
+                tenant_id,
+                semantic_weight,
+                heat_weight,
+                recency_weight,
+                graph_weight,
+                diversity_weight,
+                limit
+            )
+        )
+        
         return [memory_from_dict(row) for row in rows]
 
     def put_fact(self, fact: TemporalFact) -> None:
@@ -120,12 +237,12 @@ UPSERT_MEMORY_SQL = """
 INSERT INTO memories (
     id, tenant_id, agent_id, content, type, scope, tier, heat_score, importance,
     confidence, retrieval_count, relationship_density, provenance, created_at,
-    updated_at, accessed_at, metadata
+    updated_at, accessed_at, metadata, embedding, recency_score
 ) VALUES (
     %(id)s, %(tenant_id)s, %(agent_id)s, %(content)s, %(type)s, %(scope)s,
     %(tier)s, %(heat_score)s, %(importance)s, %(confidence)s, %(retrieval_count)s,
     %(relationship_density)s, %(provenance)s, %(created_at)s, %(updated_at)s,
-    %(accessed_at)s, %(metadata)s
+    %(accessed_at)s, %(metadata)s, %(embedding)s::vector, %(recency_score)s
 )
 ON CONFLICT (id) DO UPDATE SET
     tenant_id = EXCLUDED.tenant_id, agent_id = EXCLUDED.agent_id,
@@ -135,7 +252,8 @@ ON CONFLICT (id) DO UPDATE SET
     retrieval_count = EXCLUDED.retrieval_count,
     relationship_density = EXCLUDED.relationship_density,
     provenance = EXCLUDED.provenance, updated_at = EXCLUDED.updated_at,
-    accessed_at = EXCLUDED.accessed_at, metadata = EXCLUDED.metadata
+    accessed_at = EXCLUDED.accessed_at, metadata = EXCLUDED.metadata,
+    embedding = EXCLUDED.embedding, recency_score = EXCLUDED.recency_score
 """
 
 UPSERT_FACT_SQL = """

@@ -130,13 +130,35 @@ class Amos:
         return deleted
 
     def recall(self, *, tenant_id: str, query: str, limit: int = 10) -> list[RecallResult]:
-        candidates = self.retrieval.retrieve(query, self.memories.list(tenant_id), limit)
+        """Recall memories using hybrid retrieval if available, fallback to lexical."""
+        from .stores.postgres import PostgresStorage
+        from .models import RetrievalRoute
+        
+        # Use hybrid retrieval if PostgresStorage is available
+        if isinstance(self.memories, PostgresStorage):
+            memories = self.memories.search_hybrid(tenant_id, query, limit)
+            # Convert to RecallResult format
+            candidates = [
+                RecallResult(
+                    memory=memory,
+                    score=1.0,  # Score already calculated in hybrid search
+                    route=RetrievalRoute.GENERAL,
+                    reasons=["hybrid_retrieval"]
+                )
+                for memory in memories
+            ]
+        else:
+            # Fallback to V1 lexical retrieval
+            candidates = self.retrieval.retrieve(query, self.memories.list(tenant_id), limit)
+        
+        # Update retrieval stats
         now = utc_now()
         for result in candidates:
             result.memory.retrieval_count += 1
             result.memory.accessed_at = now
             result.memory.heat_score = self.heat.calculate(result.memory, now)
             self.memories.put(result.memory)
+        
         self._emit(tenant_id, "MemoryRecalled", {"query": query, "memory_ids": [r.memory.id for r in candidates]})
         return candidates
 
