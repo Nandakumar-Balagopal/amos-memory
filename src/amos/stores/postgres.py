@@ -164,7 +164,7 @@ class PostgresStorage:
                 (%s * ms.diversity_score)
             ) AS hybrid_score
         FROM memory_scores ms
-        WHERE ms.semantic_score > 0.3  -- Filter out very dissimilar results
+        WHERE ms.semantic_score > 0.5  -- Filter out dissimilar results (increased from 0.3 for better precision)
         ORDER BY hybrid_score DESC
         LIMIT %s
         """

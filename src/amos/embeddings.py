@@ -22,19 +22,20 @@ class EmbeddingModel(Protocol):
 class SentenceTransformerEmbeddings:
     """Embeddings using sentence-transformers library."""
     
-    def __init__(self, model_name: str = "nomic-ai/nomic-embed-text-v1.5"):
+    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
         """Initialize with a sentence-transformers model.
         
-        Default model: nomic-embed-text-v1.5
-        - 137M parameters
-        - 768 dimensions (we'll pad to 1536 for compatibility)
-        - Fast inference (~10ms on CPU)
-        - Good for semantic search
+        Default model: all-MiniLM-L6-v2 (OPTIMIZED FOR SPEED)
+        - 22M parameters (6x smaller than nomic)
+        - 384 dimensions (4x smaller vectors)
+        - Very fast inference (~2ms on CPU vs 10ms)
+        - Good quality for semantic search
+        - Model size: 80MB vs 500MB
         
         Alternative models:
-        - "sentence-transformers/all-MiniLM-L6-v2" (384 dim, very fast)
-        - "BAAI/bge-small-en-v1.5" (384 dim, good quality)
+        - "BAAI/bge-small-en-v1.5" (384 dim, slightly better quality)
         - "thenlper/gte-small" (384 dim, balanced)
+        - "nomic-ai/nomic-embed-text-v1.5" (768 dim, slower but better)
         """
         try:
             from sentence_transformers import SentenceTransformer
@@ -44,9 +45,13 @@ class SentenceTransformerEmbeddings:
             ) from error
         
         self.model = SentenceTransformer(model_name, trust_remote_code=True)
-        self._dimension = 1536  # Standard dimension for compatibility
-        native_dim = self.model.get_sentence_embedding_dimension()
-        self._native_dimension = native_dim if native_dim is not None else 768
+        # Use native dimension (384 for all-MiniLM-L6-v2)
+        try:
+            self._native_dimension = self.model.get_embedding_dimension()
+        except AttributeError:
+            # Fallback for older versions
+            self._native_dimension = self.model.get_sentence_embedding_dimension()
+        self._dimension = self._native_dimension  # Use native dimension, no padding
     
     def encode(self, text: str | list[str]) -> np.ndarray:
         """Generate embeddings for text.
@@ -55,12 +60,12 @@ class SentenceTransformerEmbeddings:
             text: Single string or list of strings
             
         Returns:
-            numpy array of shape (n, 1536) where n is number of texts
+            numpy array of shape (n, dimension) where n is number of texts
         """
         if isinstance(text, str):
             text = [text]
         
-        # Generate embeddings
+        # Generate embeddings (no padding/truncation needed)
         embeddings = self.model.encode(
             text,
             normalize_embeddings=True,  # L2 normalize for cosine similarity
@@ -68,20 +73,11 @@ class SentenceTransformerEmbeddings:
             convert_to_numpy=True
         )
         
-        # Pad or truncate to 1536 dimensions
-        if self._native_dimension < self._dimension:
-            # Pad with zeros
-            padding = np.zeros((embeddings.shape[0], self._dimension - self._native_dimension))
-            embeddings = np.concatenate([embeddings, padding], axis=1)
-        elif self._native_dimension > self._dimension:
-            # Truncate
-            embeddings = embeddings[:, :self._dimension]
-        
         return embeddings
     
     @property
     def dimension(self) -> int:
-        """Embedding dimension (always 1536 for compatibility)."""
+        """Embedding dimension (384 for all-MiniLM-L6-v2)."""
         return self._dimension
 
 

@@ -4,8 +4,8 @@
 -- Enable pgvector extension
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- Add embedding column to memories table
-ALTER TABLE memories ADD COLUMN IF NOT EXISTS embedding vector(1536);
+-- Add embedding column to memories table (384 dimensions for all-MiniLM-L6-v2)
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS embedding vector(384);
 
 -- Add recency_score column for hybrid retrieval
 ALTER TABLE memories ADD COLUMN IF NOT EXISTS recency_score DOUBLE PRECISION DEFAULT 1.0;
@@ -93,7 +93,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Comments for documentation
-COMMENT ON COLUMN memories.embedding IS 'Vector embedding for semantic search (1536 dimensions for OpenAI/nomic-embed-text)';
+COMMENT ON COLUMN memories.embedding IS 'Vector embedding for semantic search (384 dimensions for all-MiniLM-L6-v2)';
 COMMENT ON COLUMN memories.final_score IS 'Cached hybrid score: 0.4*semantic + 0.25*heat + 0.15*recency + 0.1*graph + 0.1*type';
 COMMENT ON COLUMN memories.extraction_source IS 'Source of fact extraction: regex, fuzzy, tiny_llm, full_llm';
 COMMENT ON COLUMN memories.extraction_latency_ms IS 'Time taken for fact extraction in milliseconds';
