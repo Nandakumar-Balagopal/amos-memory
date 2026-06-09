@@ -42,6 +42,21 @@ CREATE INDEX IF NOT EXISTS facts_timeline_idx ON temporal_facts (tenant_id, enti
 CREATE UNIQUE INDEX IF NOT EXISTS facts_one_current_value_idx
     ON temporal_facts (tenant_id, entity, attribute) WHERE valid_to IS NULL;
 
+CREATE TABLE IF NOT EXISTS relationships (
+    id UUID PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    relation TEXT NOT NULL,
+    target TEXT NOT NULL,
+    memory_id UUID REFERENCES memories(id) ON DELETE SET NULL,
+    confidence DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS relationships_tenant_source_idx ON relationships (tenant_id, source);
+CREATE INDEX IF NOT EXISTS relationships_tenant_target_idx ON relationships (tenant_id, target);
+
 CREATE TABLE IF NOT EXISTS domain_events (
     sequence BIGSERIAL UNIQUE NOT NULL,
     id UUID PRIMARY KEY,

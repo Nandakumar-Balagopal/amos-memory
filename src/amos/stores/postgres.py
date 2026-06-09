@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..models import DomainEvent, Memory, TemporalFact, to_dict
-from .codec import event_from_dict, fact_from_dict, memory_from_dict
+from ..models import DomainEvent, Memory, Relationship, TemporalFact, to_dict
+from .codec import event_from_dict, fact_from_dict, memory_from_dict, relationship_from_dict
 
 
 class PostgresStorage:
@@ -81,6 +81,23 @@ class PostgresStorage:
         rows = self._all("SELECT * FROM domain_events WHERE tenant_id = %s ORDER BY sequence", (tenant_id,))
         return [event_from_dict(row) for row in rows]
 
+    def add_relationship(self, relationship: Relationship) -> None:
+        data = to_dict(relationship)
+        params = {**data, "metadata": self._jsonb(data["metadata"])}
+        with self._connect() as connection, connection.cursor() as cursor:
+            cursor.execute(UPSERT_RELATIONSHIP_SQL, params)
+
+    def neighbors(self, tenant_id: str, node: str) -> list[Relationship]:
+        rows = self._all(
+            """
+            SELECT * FROM relationships
+            WHERE tenant_id = %s AND (source = %s OR target = %s)
+            ORDER BY created_at DESC
+            """,
+            (tenant_id, node, node),
+        )
+        return [relationship_from_dict(row) for row in rows]
+
     def health(self) -> bool:
         row = self._one("SELECT 1 AS ok", ())
         return bool(row and row["ok"] == 1)
@@ -136,6 +153,18 @@ ON CONFLICT (id) DO UPDATE SET
     source = EXCLUDED.source, memory_id = EXCLUDED.memory_id
 """
 
+UPSERT_RELATIONSHIP_SQL = """
+INSERT INTO relationships (
+    id, tenant_id, source, relation, target, memory_id, confidence, created_at, metadata
+) VALUES (
+    %(id)s, %(tenant_id)s, %(source)s, %(relation)s, %(target)s,
+    %(memory_id)s, %(confidence)s, %(created_at)s, %(metadata)s
+)
+ON CONFLICT (id) DO UPDATE SET
+    source = EXCLUDED.source, relation = EXCLUDED.relation, target = EXCLUDED.target,
+    memory_id = EXCLUDED.memory_id, confidence = EXCLUDED.confidence, metadata = EXCLUDED.metadata
+"""
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS memories (
     id UUID PRIMARY KEY, tenant_id TEXT NOT NULL, agent_id TEXT, content TEXT NOT NULL,
@@ -159,6 +188,15 @@ CREATE TABLE IF NOT EXISTS temporal_facts (
 CREATE INDEX IF NOT EXISTS facts_timeline_idx ON temporal_facts (tenant_id, entity, attribute, valid_from);
 CREATE UNIQUE INDEX IF NOT EXISTS facts_one_current_value_idx
     ON temporal_facts (tenant_id, entity, attribute) WHERE valid_to IS NULL;
+CREATE TABLE IF NOT EXISTS relationships (
+    id UUID PRIMARY KEY, tenant_id TEXT NOT NULL, source TEXT NOT NULL,
+    relation TEXT NOT NULL, target TEXT NOT NULL,
+    memory_id UUID REFERENCES memories(id) ON DELETE SET NULL,
+    confidence DOUBLE PRECISION NOT NULL, created_at TIMESTAMPTZ NOT NULL,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS relationships_tenant_source_idx ON relationships (tenant_id, source);
+CREATE INDEX IF NOT EXISTS relationships_tenant_target_idx ON relationships (tenant_id, target);
 CREATE TABLE IF NOT EXISTS domain_events (
     sequence BIGSERIAL UNIQUE NOT NULL, id UUID PRIMARY KEY, tenant_id TEXT NOT NULL,
     kind TEXT NOT NULL, payload JSONB NOT NULL, occurred_at TIMESTAMPTZ NOT NULL

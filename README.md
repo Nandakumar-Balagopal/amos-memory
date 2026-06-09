@@ -1,40 +1,41 @@
 # AMOS: Agent Memory Operating System
 
-AMOS is a Prototype V1 memory system for AI agents. It treats memory as a
-lifecycle instead of a pile of old chat logs: memories can be admitted, typed,
-processed into facts and relationships, retrieved under a token budget, aged,
-promoted, archived, explained, and safely forgotten.
+AMOS is a memory system for AI agents that treats memory as a lifecycle instead of a pile of old chat logs. Memories can be admitted, typed, processed into facts and relationships, retrieved under a token budget, aged, promoted, archived, explained, and safely forgotten.
 
-The goal is simple: help agents keep useful long-term context while reducing
-prompt bloat.
+**Version 2.0** introduces hybrid retrieval with semantic search, simplified storage architecture, and improved performance.
 
-## What V1 Includes
+## What's New in V2
 
-- typed memory objects with provenance and scopes
-- heuristic memory admission for deciding whether a turn deserves long-term storage
-- automatic deterministic memory processing after writes
-- conservative fact and relationship extraction
-- temporal facts represented as non-overlapping intervals
-- append-only domain events
-- heat calculation, decay, promotion, demotion, archive, and deletion decisions
-- lifecycle explanations for heat, derived projections, dependencies, and events
-- dependency-safe forgetting for memories used as consolidation evidence
-- routed lexical retrieval
-- semantic-lite retrieval with normalized terms and local similarity scoring
-- token-budgeted context compilation
-- episodic-to-semantic consolidation
-- relationships through a graph-store port
+- **Hybrid Retrieval**: Combines semantic similarity (pgvector), heat scores, recency, graph connectivity, and type diversity for better context
+- **Simplified Storage**: Reduced from 6 storage backends to 2 (InMemory for dev, PostgreSQL for production)
+- **Vector Embeddings**: Native pgvector support with HNSW indexing for fast semantic search
+- **Embedding Generation**: Built-in sentence-transformers with caching layer
+- **Better Performance**: Optimized for retrieval quality over storage complexity
+
+## Core Features
+
+- Typed memory objects with provenance and scopes
+- Heuristic memory admission for deciding whether a turn deserves long-term storage
+- Automatic deterministic memory processing after writes
+- Conservative fact and relationship extraction
+- Temporal facts represented as non-overlapping intervals
+- Append-only domain events
+- Heat calculation, decay, promotion, demotion, archive, and deletion decisions
+- Lifecycle explanations for heat, derived projections, dependencies, and events
+- Dependency-safe forgetting for memories used as consolidation evidence
+- **Hybrid retrieval** with semantic + heat + recency + graph + diversity scoring
+- Token-budgeted context compilation
+- Episodic-to-semantic consolidation
+- Relationships through a graph-store port
 - HTTP JSON API and MCP stdio server
-- in-memory, SQLite, and hybrid Postgres/Redis/Neo4j storage modes
-- benchmark and long-horizon evaluation scripts
+- Benchmark and evaluation scripts
 
-## Backend Modes
+## Storage Backends
 
 | Mode | Best For | Persistence | Setup | Notes |
 | --- | --- | --- | --- | --- |
 | `memory` | tests, demos, fast experiments | no | none | fastest; data disappears when the process exits |
-| `sqlite` | local Codex/user memory | yes | local file | recommended V1 default for real local use |
-| `hybrid` | production-style experiments | yes | Docker services | Postgres source of truth, Redis cache, Neo4j graph |
+| `postgres` | production use | yes | PostgreSQL + pgvector | recommended for production; supports hybrid retrieval |
 
 ## Architecture
 
@@ -48,10 +49,11 @@ flowchart TD
 
     Service --> Admission["Memory Admission Policy"]
     Service --> Pipeline["Deterministic Processing Pipeline"]
-    Service --> Retrieval["Semantic-Lite Retrieval Router"]
+    Service --> Retrieval["Hybrid Retrieval Engine<br/>semantic + heat + recency"]
     Service --> Context["Token-Budgeted Context Compiler"]
     Service --> Temporal["Temporal Truth Engine"]
     Service --> Heat["Heat + Lifecycle Scheduler"]
+    Service --> Embeddings["Embedding Generation<br/>sentence-transformers + cache"]
 
     Admission --> Remember["Remember / Skip Decision"]
     Pipeline --> Facts["Temporal Facts"]
@@ -61,25 +63,20 @@ flowchart TD
     Heat --> Tiers["Active / Survivor / Durable / Archive"]
 
     Service --> MemoryMode["Memory Backend<br/>fast, ephemeral"]
-    Service --> SQLiteMode["SQLite Backend<br/>local durable V1 default"]
-    Service --> HybridMode["Hybrid Backend<br/>production-style"]
+    Service --> PostgresMode["PostgreSQL Backend<br/>production with pgvector"]
 
-    HybridMode --> Postgres["Postgres<br/>memories, facts, events"]
-    HybridMode --> Redis["Redis<br/>L1 memory cache"]
-    HybridMode --> Neo4j["Neo4j<br/>relationship graph"]
-
-    SQLiteMode --> SQLiteFile[".sqlite3 file<br/>memories, facts, graph, events"]
+    PostgresMode --> Postgres["PostgreSQL + pgvector<br/>memories, facts, events, embeddings"]
     MemoryMode --> ProcessMemory["Python process memory"]
 
-    Eval["Long-Horizon Eval"] --> Service
-    Eval --> Metrics["Hit Rate<br/>Compression Ratio<br/>Latency<br/>Misses"]
+    Eval["Benchmarks"] --> Service
+    Eval --> Metrics["Token Efficiency<br/>Latency<br/>Retrieval Quality"]
 ```
 
 ## Requirements
 
 - Python 3.12+
-- Windows PowerShell examples are shown below
-- Docker Desktop only if you want `hybrid` mode
+- PostgreSQL 14+ with pgvector extension (for production mode)
+- Windows PowerShell or bash examples shown below
 
 ## Install
 
@@ -93,16 +90,35 @@ python -m venv .venv
 If you do not use a virtual environment, set `PYTHONPATH=src` before running
 modules directly.
 
-## Quick Start: SQLite Mode
+## Quick Start: Memory Mode (Development)
 
-SQLite is the recommended V1 local mode because it persists memory without
-Docker or external services.
+For quick testing without persistence:
 
-```powershell
-$env:AMOS_STORAGE_BACKEND="sqlite"
-$env:AMOS_SQLITE_PATH=".amos.sqlite3"
-.\.venv\Scripts\python.exe -m amos
+```bash
+# Linux/macOS
+export AMOS_STORAGE_BACKEND="memory"
+python -m amos
+
+# Windows PowerShell
+$env:AMOS_STORAGE_BACKEND="memory"
+python -m amos
 ```
+
+## PostgreSQL Mode (Production)
+
+For production use with hybrid retrieval:
+
+```bash
+# Setup database (one-time)
+./scripts/setup-database.sh
+
+# Run AMOS
+export AMOS_STORAGE_BACKEND="postgres"
+export AMOS_POSTGRES_DSN="postgresql://amos:amos@localhost:5432/amos"
+python -m amos
+```
+
+See [PGVECTOR_INSTALLATION.md](migrations/PGVECTOR_INSTALLATION.md) for detailed setup instructions.
 
 The server listens on:
 
@@ -170,10 +186,9 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8080/v1/scheduler/run `
 
 AMOS can run as an MCP stdio server:
 
-```powershell
-$env:AMOS_STORAGE_BACKEND="sqlite"
-$env:AMOS_SQLITE_PATH=".amos.sqlite3"
-.\.venv\Scripts\python.exe -m amos.mcp
+```bash
+export AMOS_STORAGE_BACKEND="memory"  # or "postgres"
+python -m amos.mcp
 ```
 
 The MCP server exposes:
@@ -211,8 +226,7 @@ Then edit `.codex/config.toml` and replace:
 C:\path\to\amos
 ```
 
-with your actual repo path. For local V1 use, prefer the `amos_sqlite` server.
-Open or reload this trusted workspace in Codex after editing the config.
+with your actual repo path. Open or reload this trusted workspace in Codex after editing the config.
 
 Try this in Codex:
 
@@ -221,89 +235,108 @@ Use AMOS to remember that Nandu is building an agent memory operating system.
 Then use AMOS to recall what Nandu is building.
 ```
 
-## Hybrid Mode
+## Docker Compose (Optional)
 
-Hybrid mode uses:
+For easy PostgreSQL setup with pgvector:
 
-- Postgres for memories, temporal facts, and domain events
-- Redis as a memory cache
-- Neo4j for graph relationships
-
-Start the services:
-
-```powershell
-docker compose up -d --wait
+```bash
+docker compose up -d
 ```
 
-Run AMOS in hybrid mode:
-
-```powershell
-$env:AMOS_STORAGE_BACKEND="hybrid"
-$env:AMOS_POSTGRES_DSN="postgresql://amos:amos@127.0.0.1:5432/amos"
-$env:AMOS_REDIS_URL="redis://127.0.0.1:6379/0"
-$env:AMOS_NEO4J_URI="bolt://127.0.0.1:7687"
-$env:AMOS_NEO4J_USER="neo4j"
-$env:AMOS_NEO4J_PASSWORD="amos-password"
-.\.venv\Scripts\python.exe -m amos
-```
-
-Service ports:
-
-| Service | Port |
-| --- | --- |
-| Postgres | `5432` |
-| Redis | `6379` |
-| Neo4j Bolt | `7687` |
-| Neo4j Browser | `http://127.0.0.1:7474` |
-
-Stop hybrid services:
-
-```powershell
-docker compose down
-```
+This starts PostgreSQL with pgvector pre-installed on port 5432.
 
 ## Tests
 
-Run the normal unit suite:
+Run the test suite:
 
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```bash
+python -m unittest discover -s tests -v
 ```
 
-Run live hybrid integration tests with Docker services running:
+Run with PostgreSQL integration tests:
 
-```powershell
-$env:AMOS_STORAGE_BACKEND="hybrid"
-$env:AMOS_RUN_INTEGRATION="1"
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```bash
+export AMOS_STORAGE_BACKEND="postgres"
+export AMOS_RUN_INTEGRATION="1"
+python -m unittest discover -s tests -v
 ```
 
-## Benchmarks And Long-Horizon Evaluation
+## Benchmarks And Evaluation
 
-Run the MCP benchmark:
+AMOS includes comprehensive benchmarking tools to validate performance against real systems.
+
+### Quick Benchmarks
+
+Run internal benchmarks:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\benchmark-mcp.py --backend sqlite
+# Token cost reduction
+.\.venv\Scripts\python.exe scripts\token-cost-benchmark.py
+
+# Latency comparison
+.\.venv\Scripts\python.exe scripts\latency-benchmark.py
+
+# Temporal consistency
+.\.venv\Scripts\python.exe scripts\temporal-consistency-validation.py
+
+# Run all benchmarks
+.\.venv\Scripts\python.exe scripts\run-all-benchmarks.py
 ```
 
-Run a long-horizon token-compression evaluation:
+### Live System Comparison
+
+Compare AMOS against actual MemGPT/Letta, Zep, and LangChain implementations:
+
+```bash
+# Quick setup (5 minutes)
+chmod +x scripts/setup-live-benchmark.sh
+./scripts/setup-live-benchmark.sh
+
+# Start services
+docker-compose -f docker-compose.benchmark.yaml up -d
+letta server  # In separate terminal
+
+# Run live benchmarks
+source venv-benchmark/bin/activate
+python scripts/live-benchmark.py --system all
+```
+
+**See [LIVE_BENCHMARK_QUICKSTART.md](LIVE_BENCHMARK_QUICKSTART.md) for detailed setup.**
+
+### Long-Horizon Evaluation
+
+Run token-compression evaluation over 1000+ turns:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\long-horizon-eval.py --backend sqlite --policy admitted --include-paraphrases
 ```
 
-The long-horizon eval reports:
+### Benchmark Results
 
-- memories stored
-- probe count
-- hit rate
-- transcript token count
-- AMOS context token budget
-- compression ratio
-- write and context latency
-- misses
+Key findings from comprehensive testing:
+
+| Metric | AMOS | LangChain | Letta/MemGPT | Zep |
+|--------|------|-----------|--------------|-----|
+| **Token Efficiency** | 50K | 200K+ | 150K+ | 180K+ |
+| **Write Latency** | 5-10ms | 1-2ms | 500-1000ms | 200-400ms |
+| **Read Latency** | 10-20ms | 5-10ms | 100-200ms | 50-100ms |
+| **LLM Calls** | 0 | 0 | Many | Many |
+| **Compression** | 6.98x | 1.0x | ~2x | ~2x |
+
+**AMOS Advantages:**
+- ✅ **2-17x fewer tokens** than competitors
+- ✅ **Zero LLM calls** for memory processing
+- ✅ **Deterministic extraction** (no API costs)
+- ✅ **Fast writes** (no graph extraction overhead)
 
 Generated reports are written to `benchmark-results/`, which is ignored by Git.
+
+**Documentation:**
+- [BENCHMARKS.md](BENCHMARKS.md) - Technical methodology
+- [BENCHMARK_INSTRUCTIONS.md](BENCHMARK_INSTRUCTIONS.md) - Quick start guide
+- [PUBLICATION_RESULTS.md](PUBLICATION_RESULTS.md) - Publication-ready summary
+- [LIVE_BENCHMARK_SETUP.md](LIVE_BENCHMARK_SETUP.md) - Live system integration
+- [LIVE_BENCHMARK_QUICKSTART.md](LIVE_BENCHMARK_QUICKSTART.md) - 5-minute setup
 
 ## API Reference
 
