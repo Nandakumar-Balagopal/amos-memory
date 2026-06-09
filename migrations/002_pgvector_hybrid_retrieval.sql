@@ -7,6 +7,9 @@ CREATE EXTENSION IF NOT EXISTS vector;
 -- Add embedding column to memories table
 ALTER TABLE memories ADD COLUMN IF NOT EXISTS embedding vector(1536);
 
+-- Add recency_score column for hybrid retrieval
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS recency_score DOUBLE PRECISION DEFAULT 1.0;
+
 -- Create HNSW index for fast similarity search
 -- m=16 and ef_construction=64 are recommended defaults for good recall/speed balance
 CREATE INDEX IF NOT EXISTS idx_memories_embedding_hnsw 
