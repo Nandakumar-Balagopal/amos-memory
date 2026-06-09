@@ -105,11 +105,25 @@ class PostgresStorage:
         sql = """
         WITH memory_scores AS (
             SELECT
-                m.*,
+                m.id,
+                m.tenant_id,
+                m.agent_id,
+                m.content,
+                m.type,
+                m.scope,
+                m.tier,
+                m.heat_score,
+                m.importance,
+                m.confidence,
+                m.retrieval_count,
+                m.relationship_density,
+                m.provenance,
+                m.created_at,
+                m.updated_at,
+                m.accessed_at,
+                m.metadata,
                 -- Semantic similarity (cosine distance, 0=identical, 2=opposite)
                 (1 - (m.embedding <=> %s::vector)) AS semantic_score,
-                -- Heat score (already normalized 0-1)
-                m.heat_score AS heat_score,
                 -- Recency score (already normalized 0-1)
                 COALESCE(m.recency_score, 0.0) AS recency_score,
                 -- Graph connectivity (count of relationships)
@@ -134,22 +148,23 @@ class PostgresStorage:
             AND m.embedding IS NOT NULL
         )
         SELECT
-            id, tenant_id, agent_id, content, type, scope, tier, heat_score, importance,
-            confidence, retrieval_count, relationship_density, provenance, created_at,
-            updated_at, accessed_at, metadata,
-            semantic_score,
-            recency_score,
-            graph_score,
-            diversity_score,
+            ms.id, ms.tenant_id, ms.agent_id, ms.content, ms.type, ms.scope, ms.tier,
+            ms.heat_score, ms.importance, ms.confidence, ms.retrieval_count,
+            ms.relationship_density, ms.provenance, ms.created_at, ms.updated_at,
+            ms.accessed_at, ms.metadata,
+            ms.semantic_score,
+            ms.recency_score,
+            ms.graph_score,
+            ms.diversity_score,
             (
-                (%s * semantic_score) +
-                (%s * heat_score) +
-                (%s * recency_score) +
-                (%s * LEAST(graph_score, 1.0)) +
-                (%s * diversity_score)
+                (%s * ms.semantic_score) +
+                (%s * ms.heat_score) +
+                (%s * ms.recency_score) +
+                (%s * LEAST(ms.graph_score, 1.0)) +
+                (%s * ms.diversity_score)
             ) AS hybrid_score
-        FROM memory_scores
-        WHERE semantic_score > 0.3  -- Filter out very dissimilar results
+        FROM memory_scores ms
+        WHERE ms.semantic_score > 0.3  -- Filter out very dissimilar results
         ORDER BY hybrid_score DESC
         LIMIT %s
         """
