@@ -133,7 +133,14 @@ class PostgresStorage:
             WHERE m.tenant_id = %s
             AND m.embedding IS NOT NULL
         )
-        SELECT *,
+        SELECT
+            id, tenant_id, agent_id, content, type, scope, tier, heat_score, importance,
+            confidence, retrieval_count, relationship_density, provenance, created_at,
+            updated_at, accessed_at, metadata,
+            semantic_score,
+            recency_score,
+            graph_score,
+            diversity_score,
             (
                 (%s * semantic_score) +
                 (%s * heat_score) +
