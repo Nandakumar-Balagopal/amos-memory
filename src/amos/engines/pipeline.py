@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from ..models import Relationship, TemporalFact
+from .extraction import CascadingExtractor, ExtractionSource
 
 
 @dataclass(slots=True)
@@ -37,6 +38,8 @@ class DeterministicMemoryPipeline:
     This is intentionally deterministic. LLM extractors can be added behind the
     same contract later, but AMOS should already have explainable behavior when
     no model is available.
+    
+    V2 Enhancement: Now supports cascading extraction with optional tiny LLM fallback.
     """
 
     FACT_PATTERNS: tuple[tuple[re.Pattern[str], str, str], ...] = (
@@ -50,8 +53,46 @@ class DeterministicMemoryPipeline:
         (re.compile(r"\b(?P<source>[A-Z][\w-]*)\s+depends\s+on\s+(?P<target>[A-Z][\w-]*(?:\s+[A-Z][\w-]*)*)", re.I), "DEPENDS_ON"),
         (re.compile(r"\b(?P<source>[A-Z][\w-]*)\s+is\s+related\s+to\s+(?P<target>[A-Z][\w-]*(?:\s+[A-Z][\w-]*)*)", re.I), "RELATED_TO"),
     )
+    
+    def __init__(self, use_cascading: bool = False, use_tiny_llm: bool = False):
+        """Initialize the pipeline.
+        
+        Args:
+            use_cascading: Whether to use cascading extraction (V2 feature)
+            use_tiny_llm: Whether to enable tiny LLM fallback (requires transformers)
+        """
+        self.use_cascading = use_cascading
+        self._cascading_extractor = None
+        if use_cascading:
+            self._cascading_extractor = CascadingExtractor(
+                use_tiny_llm=use_tiny_llm,
+                use_full_llm=False
+            )
 
     def extract_facts(self, content: str) -> list[FactCandidate]:
+        """Extract facts from content using V1 regex or V2 cascading extraction.
+        
+        Args:
+            content: Text content to extract facts from
+            
+        Returns:
+            List of fact candidates with confidence scores
+        """
+        # V2: Use cascading extraction if enabled
+        if self.use_cascading and self._cascading_extractor:
+            extracted_facts = self._cascading_extractor.extract(content)
+            candidates = [
+                FactCandidate(
+                    entity=fact.entity,
+                    attribute=fact.attribute,
+                    value=fact.value,
+                    confidence=fact.confidence
+                )
+                for fact in extracted_facts
+            ]
+            return candidates
+        
+        # V1: Use original regex-based extraction
         candidates: list[FactCandidate] = []
         seen: set[tuple[str, str, str]] = set()
         for pattern, attribute, _relation in self.FACT_PATTERNS:
