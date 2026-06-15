@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from datetime import datetime
+
+from ..models import Relationship, TemporalFact
+from .extraction import ExtractionEngine, ExtractionSource
+
+# Backward compatibility alias
+CascadingExtractor = ExtractionEngine
+
+
+@dataclass
+class FactCandidate:
+    entity: str
+    attribute: str
+    value: str
+    confidence: float
+
+
+@dataclass
+class RelationshipCandidate:
+    source: str
+    relation: str
+    target: str
+    confidence: float
+
+
+@dataclass
+class ProcessingReport:
+    memory_id: str
+    extracted_facts: list[TemporalFact] = field(default_factory=list)
+    extracted_relationships: list[Relationship] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+    extraction_sources: dict[str, int] = field(default_factory=dict)  # Track extraction method usage
+
+
+class DeterministicMemoryPipeline:
+    """A conservative local pipeline for first-pass extraction.
+
+    This is intentionally deterministic. LLM extractors can be added behind the
+    same contract later, but AMOS should already have explainable behavior when
+    no model is available.
+    
+    V2 Enhancement: Now supports cascading extraction with optional tiny LLM fallback.
+    """
+
+    FACT_PATTERNS: tuple[tuple[re.Pattern[str], str, str], ...] = (
+        (re.compile(r"\b(?P<entity>[A-Z][\w-]*)\s+(?:is\s+)?building\s+(?P<value>[A-Z][\w-]*(?:\s+[A-Z][\w-]*)*)", re.I), "works_on", "WORKS_ON"),
+        (re.compile(r"\b(?P<entity>[A-Z][\w-]*)\s+(?:works|worked|started working)\s+on\s+(?P<value>[A-Z][\w-]*(?:\s+[A-Z][\w-]*)*)", re.I), "works_on", "WORKS_ON"),
+        (re.compile(r"\b(?P<entity>[A-Z][\w-]*)\s+uses\s+(?P<value>[A-Z][\w-]*(?:\s+[A-Z][\w-]*)*)", re.I), "uses", "USES"),
+        (re.compile(r"\b(?P<entity>[A-Z][\w-]*)\s+prefers\s+(?P<value>[^.]+)", re.I), "prefers", "PREFERS"),
+    )
+
+    RELATION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+        (re.compile(r"\b(?P<source>[A-Z][\w-]*)\s+depends\s+on\s+(?P<target>[A-Z][\w-]*(?:\s+[A-Z][\w-]*)*)", re.I), "DEPENDS_ON"),
+        (re.compile(r"\b(?P<source>[A-Z][\w-]*)\s+is\s+related\s+to\s+(?P<target>[A-Z][\w-]*(?:\s+[A-Z][\w-]*)*)", re.I), "RELATED_TO"),
+    )
+    
+    def __init__(self, use_cascading: bool = False, use_tiny_llm: bool = False):
+        """Initialize the pipeline.
+        
+        Args:
+            use_cascading: Whether to use cascading extraction (V2 feature)
+            use_tiny_llm: Whether to enable tiny LLM fallback (requires Ollama)
+        """
+        self.use_cascading = use_cascading
+        self._cascading_extractor = None
+        if use_cascading:
+            self._cascading_extractor = ExtractionEngine(
+                use_llm=use_tiny_llm
+            )
+
+    def extract_facts(self, content: str) -> list[FactCandidate]:
+        """Extract facts from content using V1 regex or V2 cascading extraction.
+        
+        Args:
+            content: Text content to extract facts from
+            
+        Returns:
+            List of fact candidates with confidence scores
+        """
+        # V2: Use cascading extraction if enabled
+        if self.use_cascading and self._cascading_extractor:
+            extracted_facts = self._cascading_extractor.extract(content)
+            candidates = []
+            for fact in extracted_facts:
+                candidates.append(FactCandidate(
+                    entity=fact.entity,
+                    attribute=fact.attribute,
+                    value=fact.value,
+                    confidence=fact.confidence
+                ))
+            return candidates
+        
+        # V1: Use original regex-based extraction
+        candidates: list[FactCandidate] = []
+        seen: set[tuple[str, str, str]] = set()
+        for pattern, attribute, _relation in self.FACT_PATTERNS:
+            for match in pattern.finditer(content):
+                entity = self._clean(match.group("entity"))
+                value = self._clean(match.group("value"))
+                key = (entity.lower(), attribute, value.lower())
+                if entity and value and key not in seen:
+                    seen.add(key)
+                    candidates.append(FactCandidate(entity, attribute, value, 0.72))
+        return candidates
+
+    def extract_relationships(self, content: str) -> list[RelationshipCandidate]:
+        candidates: list[RelationshipCandidate] = []
+        seen: set[tuple[str, str, str]] = set()
+        for pattern, attribute, relation in self.FACT_PATTERNS:
+            for match in pattern.finditer(content):
+                source = self._clean(match.group("entity"))
+                target = self._clean(match.group("value"))
+                key = (source.lower(), relation, target.lower())
+                if source and target and key not in seen:
+                    seen.add(key)
+                    candidates.append(RelationshipCandidate(source, relation, target, 0.72))
+        for pattern, relation in self.RELATION_PATTERNS:
+            for match in pattern.finditer(content):
+                source = self._clean(match.group("source"))
+                target = self._clean(match.group("target"))
+                key = (source.lower(), relation, target.lower())
+                if source and target and key not in seen:
+                    seen.add(key)
+                    candidates.append(RelationshipCandidate(source, relation, target, 0.78))
+        return candidates
+
+    def valid_from(self, _content: str) -> datetime | None:
+        return None
+
+    @staticmethod
+    def _clean(value: str) -> str:
+        return re.sub(r"\s+", " ", value.strip(" .,:;!?\"'")).strip()
+

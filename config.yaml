@@ -1,0 +1,309 @@
+# AMOS Configuration File
+# This file contains all configurable properties for the AMOS system
+
+# =============================================================================
+# SERVER CONFIGURATION
+# =============================================================================
+server:
+  host: "127.0.0.1"
+  port: 8080
+  debug: false
+  workers: 1
+
+# =============================================================================
+# STORAGE CONFIGURATION
+# =============================================================================
+storage:
+  # Backend type: "memory" (dev) or "postgres" (production)
+  backend: "memory"
+  
+  # PostgreSQL configuration (used when backend=postgres)
+  postgres:
+    dsn: "postgresql://amos:amos@localhost:5432/amos"
+    pool_size: 10
+    max_overflow: 20
+    initialize: true  # Auto-create tables on startup
+
+# =============================================================================
+# EXTRACTION CONFIGURATION
+# =============================================================================
+extraction:
+  # Enable LLM extraction (requires Ollama)
+  use_llm: true
+  
+  # Enable LLM validation of extracted facts
+  use_validation: true
+  
+  # LLM model for extraction (phi, llama2, mistral)
+  llm_model: "phi"
+  
+  # Ollama API URL
+  ollama_url: "http://localhost:11434"
+  
+  # Minimum confidence threshold (0.0-1.0)
+  confidence_threshold: 0.6
+  
+  # Enable cascading extraction in pipeline (MUST be true for LLM extraction)
+  use_cascading: true
+
+# =============================================================================
+# RETRIEVAL CONFIGURATION
+# =============================================================================
+retrieval:
+  # Default number of results to return
+  default_limit: 10
+  
+  # Maximum number of results
+  max_limit: 100
+  
+  # Hybrid retrieval weights (must sum to 1.0)
+  weights:
+    semantic: 0.40      # Semantic similarity
+    heat: 0.25          # Heat score
+    recency: 0.15       # Temporal relevance
+    graph: 0.10         # Graph connectivity
+    diversity: 0.10     # Type diversity
+
+# =============================================================================
+# EMBEDDING CONFIGURATION
+# =============================================================================
+embeddings:
+  # Model name for sentence-transformers
+  model: "sentence-transformers/all-MiniLM-L6-v2"
+  
+  # Embedding dimension
+  dimension: 384
+  
+  # Device: "cpu" or "cuda"
+  device: "cpu"
+  
+  # Batch size for encoding
+  batch_size: 32
+
+# =============================================================================
+# MEMORY LIFECYCLE CONFIGURATION
+# =============================================================================
+lifecycle:
+  # Heat calculation parameters
+  heat:
+    decay_lambda_per_day: 0.03
+    importance_weight: 0.35
+    frequency_weight: 0.25
+    recency_weight: 0.20
+    relationship_weight: 0.10
+    confidence_weight: 0.10
+  
+  # Tier promotion/demotion thresholds
+  thresholds:
+    survivor_promotion: 0.65    # ACTIVE → SURVIVOR
+    durable_promotion: 0.78     # SURVIVOR → DURABLE
+    survivor_archive: 0.18      # SURVIVOR → ARCHIVE
+    durable_demotion: 0.20      # DURABLE → ARCHIVE
+    archive_deletion: 0.05      # ARCHIVE → DELETE
+  
+  # Scheduler configuration
+  scheduler:
+    # Run garbage collection automatically
+    auto_gc: true
+    
+    # GC interval in seconds (default: 1 hour)
+    gc_interval: 3600
+
+# =============================================================================
+# ADMISSION POLICY CONFIGURATION
+# =============================================================================
+admission:
+  # Minimum score threshold for admission (0.0-1.0)
+  threshold: 0.55
+  
+  # Type weights for different memory types
+  type_weights:
+    FACT: 0.18
+    SKILL: 0.20
+    PREFERENCE: 0.22
+    BELIEF: 0.14
+    RELATIONSHIP: 0.16
+    SUMMARY: 0.18
+    GOAL: 0.22
+    TASK: 0.18
+    EPISODE: 0.12
+    OBSERVATION: 0.04
+
+# =============================================================================
+# CONTEXT COMPILATION CONFIGURATION
+# =============================================================================
+context:
+  # Default token budget
+  default_budget: 2000
+  
+  # Maximum token budget
+  max_budget: 8000
+  
+  # Tokens per character estimate
+  tokens_per_char: 0.25
+
+# =============================================================================
+# ASYNC PROCESSING CONFIGURATION
+# =============================================================================
+async_processing:
+  # Enable async processing
+  enabled: false
+  
+  # Number of worker threads
+  workers: 1
+  
+  # Queue size
+  queue_size: 1000
+  
+  # Processing timeout in seconds
+  timeout: 30
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  
+  # Log format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  # Log to file
+  file:
+    enabled: false
+    path: "logs/amos.log"
+    max_bytes: 10485760  # 10MB
+    backup_count: 5
+
+# =============================================================================
+# API CONFIGURATION
+# =============================================================================
+api:
+  # Enable CORS
+  cors_enabled: true
+  
+  # Allowed origins (use ["*"] for all)
+  cors_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8080"
+  
+  # API rate limiting
+  rate_limit:
+    enabled: false
+    requests_per_minute: 60
+  
+  # API authentication
+  auth:
+    enabled: false
+    api_key: ""  # Set via environment variable AMOS_API_KEY
+
+# =============================================================================
+# MCP SERVER CONFIGURATION
+# =============================================================================
+mcp:
+  # MCP server name
+  name: "amos-memory"
+  
+  # MCP server version
+  version: "2.0.0"
+  
+  # Enable debug mode
+  debug: false
+
+# =============================================================================
+# FEATURE FLAGS
+# =============================================================================
+features:
+  # Enable experimental features
+  experimental: false
+  
+  # Enable telemetry
+  telemetry: false
+  
+  # Enable performance profiling
+  profiling: false
+
+# =============================================================================
+# DEVELOPMENT CONFIGURATION
+# =============================================================================
+development:
+  # Auto-reload on code changes
+  auto_reload: false
+  
+  # Show detailed error messages
+  detailed_errors: true
+  
+  # Enable debug endpoints
+  debug_endpoints: false
+
+
+# =============================================================================
+# V3 GENERATIONAL MEMORY CONFIGURATION
+# =============================================================================
+v3:
+  # Enable V3 generational memory architecture
+  enabled: true
+  
+  # Young Generation Configuration
+  young_generation:
+    ttl_days: 7  # Time-to-live in days
+    max_size: 500  # Maximum number of episodes
+  
+  # Survivor Space Configuration
+  survivor_space:
+    max_size: 100  # Maximum number of episodes
+  
+  # Promotion Engine Configuration
+  promotion:
+    threshold: 0.6  # Minimum score for promotion (0.0-1.0)
+    check_interval: 300  # Check interval in seconds (5 minutes)
+    
+    # Scoring weights (must sum to 1.0)
+    weights:
+      retrieval_frequency: 0.4
+      mention_frequency: 0.2
+      recency: 0.1
+      importance: 0.1
+      graph_connections: 0.2
+  
+  # Heat Model Configuration
+  heat:
+    decay_daily: 0.98  # Daily decay factor
+    decay_weekly: 0.9  # Weekly decay factor
+    min_threshold: 0.01  # Minimum heat before considered cold
+  
+  # Archive Configuration
+  archive:
+    after_days: 90  # Archive memories after N days of inactivity
+    delete_after_days: 365  # Delete archived memories after N days
+    max_heat: 0.1  # Archive episodes with heat below this threshold
+  
+  # Garbage Collection Configuration
+  gc:
+    enabled: true  # Enable automatic garbage collection
+    run_interval: 86400  # GC interval in seconds (24 hours)
+    
+    # Episode archiving
+    episode_archive_days: 90
+    episode_max_heat: 0.1
+    
+    # Semantic memory cleanup
+    semantic_cleanup_days: 180
+    semantic_min_heat: 0.01
+    
+    # Relationship cleanup
+    relationship_cleanup_days: 180
+    relationship_min_heat: 0.01
+    
+    # Archive deletion
+    archive_delete_days: 365
+
+  # Reflection Engine Configuration
+  reflection:
+    enabled: true
+    model: "qwen2.5:3b"  # Ollama model for reflection
+    ollama_url: "http://localhost:11434"
+    batch_size: 50  # Number of episodes per reflection
+    check_interval: 3600  # Check interval in seconds (1 hour)
+    min_episodes: 10  # Minimum episodes before reflection
+    min_confidence: 0.7  # Minimum confidence for extracted facts

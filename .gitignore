@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+venv-*/
+dist/
+build/
+*.egg-info/
+.env
+*.sqlite
+*.sqlite3
+benchmark-results/
+.codex/config.toml
