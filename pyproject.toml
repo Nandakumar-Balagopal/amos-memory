@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "amos-memory"
 version = "0.2.0"
 description = "AMOS: Agent Memory Operating System with Hybrid Retrieval"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "psycopg[binary]>=3.2,<4",
     "pgvector>=0.3.0",
