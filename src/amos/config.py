@@ -383,6 +383,54 @@ def _apply_dict_to_config(config: Config, data: Dict[str, Any]) -> None:
                         setattr(config.retrieval.weights, wkey, wvalue)
             elif hasattr(config.retrieval, key):
                 setattr(config.retrieval, key, value)
+
+    if "embeddings" in data:
+        _apply_attrs(config.embeddings, data["embeddings"])
+
+    if "lifecycle" in data:
+        lifecycle = data["lifecycle"]
+        if "heat" in lifecycle:
+            _apply_attrs(config.lifecycle.heat, lifecycle["heat"])
+        if "thresholds" in lifecycle:
+            _apply_attrs(config.lifecycle.thresholds, lifecycle["thresholds"])
+        if "scheduler" in lifecycle:
+            _apply_attrs(config.lifecycle.scheduler, lifecycle["scheduler"])
+
+    if "admission" in data:
+        for key, value in data["admission"].items():
+            if hasattr(config.admission, key):
+                setattr(config.admission, key, value)
+
+    if "context" in data:
+        _apply_attrs(config.context, data["context"])
+
+    if "async_processing" in data:
+        _apply_attrs(config.async_processing, data["async_processing"])
+
+    if "logging" in data:
+        for key, value in data["logging"].items():
+            if key == "file" and isinstance(value, dict):
+                _apply_attrs(config.logging.file, value)
+            elif hasattr(config.logging, key):
+                setattr(config.logging, key, value)
+
+    if "api" in data:
+        for key, value in data["api"].items():
+            if key == "rate_limit" and isinstance(value, dict):
+                _apply_attrs(config.api.rate_limit, value)
+            elif key == "auth" and isinstance(value, dict):
+                _apply_attrs(config.api.auth, value)
+            elif hasattr(config.api, key):
+                setattr(config.api, key, value)
+
+    if "mcp" in data:
+        _apply_attrs(config.mcp, data["mcp"])
+
+    if "features" in data:
+        _apply_attrs(config.features, data["features"])
+
+    if "development" in data:
+        _apply_attrs(config.development, data["development"])
     
     # V3 Configuration
     if "v3" in data:
@@ -424,6 +472,12 @@ def _apply_dict_to_config(config: Config, data: Dict[str, Any]) -> None:
                     setattr(config.v3.reflection, key, value)
 
 
+def _apply_attrs(target: Any, values: Dict[str, Any]) -> None:
+    for key, value in values.items():
+        if hasattr(target, key):
+            setattr(target, key, value)
+
+
 def _apply_env_vars(config: Config) -> None:
     """Apply environment variable overrides."""
     # Server
@@ -441,10 +495,38 @@ def _apply_env_vars(config: Config) -> None:
     # Extraction
     if use_llm := os.getenv("AMOS_USE_LLM"):
         config.extraction.use_llm = use_llm.lower() == "true"
+    if use_validation := os.getenv("AMOS_USE_VALIDATION"):
+        config.extraction.use_validation = use_validation.lower() == "true"
+    if use_cascading := os.getenv("AMOS_USE_CASCADING"):
+        config.extraction.use_cascading = use_cascading.lower() == "true"
     if model := os.getenv("AMOS_LLM_MODEL"):
         config.extraction.llm_model = model
     if url := os.getenv("AMOS_OLLAMA_URL"):
         config.extraction.ollama_url = url
+    if threshold := os.getenv("AMOS_EXTRACTION_CONFIDENCE_THRESHOLD"):
+        config.extraction.confidence_threshold = float(threshold)
+
+    # Embeddings
+    if embedding_model := os.getenv("AMOS_EMBEDDING_MODEL"):
+        config.embeddings.model = embedding_model
+
+    # Lifecycle
+    if heat_decay := os.getenv("AMOS_HEAT_DECAY_LAMBDA_PER_DAY"):
+        config.lifecycle.heat.decay_lambda_per_day = float(heat_decay)
+    if survivor_promotion := os.getenv("AMOS_SURVIVOR_PROMOTION_THRESHOLD"):
+        config.lifecycle.thresholds.survivor_promotion = float(survivor_promotion)
+    if durable_promotion := os.getenv("AMOS_DURABLE_PROMOTION_THRESHOLD"):
+        config.lifecycle.thresholds.durable_promotion = float(durable_promotion)
+    if archive_threshold := os.getenv("AMOS_ARCHIVE_THRESHOLD"):
+        config.lifecycle.thresholds.survivor_archive = float(archive_threshold)
+    if delete_threshold := os.getenv("AMOS_ARCHIVE_DELETE_THRESHOLD"):
+        config.lifecycle.thresholds.archive_deletion = float(delete_threshold)
+
+    # Async processing
+    if async_enabled := os.getenv("AMOS_ASYNC_PROCESSING"):
+        config.async_processing.enabled = async_enabled.lower() == "true"
+    if async_workers := os.getenv("AMOS_ASYNC_WORKERS"):
+        config.async_processing.workers = int(async_workers)
     
     # API
     if api_key := os.getenv("AMOS_API_KEY"):
@@ -454,4 +536,3 @@ def _apply_env_vars(config: Config) -> None:
 
 # Global config instance
 config = load_config()
-

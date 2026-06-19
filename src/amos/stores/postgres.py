@@ -258,12 +258,12 @@ class PostgresStorage:
 UPSERT_MEMORY_SQL = """
 INSERT INTO memories (
     id, tenant_id, agent_id, content, type, scope, tier, heat_score, importance,
-    confidence, retrieval_count, relationship_density, provenance, created_at,
+    confidence, retrieval_count, relationship_density, survivor_count, provenance, created_at,
     updated_at, accessed_at, metadata, embedding, recency_score
 ) VALUES (
     %(id)s, %(tenant_id)s, %(agent_id)s, %(content)s, %(type)s, %(scope)s,
     %(tier)s, %(heat_score)s, %(importance)s, %(confidence)s, %(retrieval_count)s,
-    %(relationship_density)s, %(provenance)s, %(created_at)s, %(updated_at)s,
+    %(relationship_density)s, %(survivor_count)s, %(provenance)s, %(created_at)s, %(updated_at)s,
     %(accessed_at)s, %(metadata)s, %(embedding)s::vector, %(recency_score)s
 )
 ON CONFLICT (id) DO UPDATE SET
@@ -273,6 +273,7 @@ ON CONFLICT (id) DO UPDATE SET
     importance = EXCLUDED.importance, confidence = EXCLUDED.confidence,
     retrieval_count = EXCLUDED.retrieval_count,
     relationship_density = EXCLUDED.relationship_density,
+    survivor_count = EXCLUDED.survivor_count,
     provenance = EXCLUDED.provenance, updated_at = EXCLUDED.updated_at,
     accessed_at = EXCLUDED.accessed_at, metadata = EXCLUDED.metadata,
     embedding = EXCLUDED.embedding, recency_score = EXCLUDED.recency_score

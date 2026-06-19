@@ -305,6 +305,7 @@ class ExtractionEngine:
         use_llm: bool = False,
         use_validation: bool = False,
         llm_model: str = "phi",
+        ollama_url: str = "http://localhost:11434",
         confidence_threshold: float = 0.6
     ):
         """Initialize extraction engine.
@@ -313,6 +314,7 @@ class ExtractionEngine:
             use_llm: Enable LLM extraction (default: False)
             use_validation: Enable LLM validation (default: False)
             llm_model: LLM model name for Ollama (phi, llama2, mistral)
+            ollama_url: Ollama API URL
             confidence_threshold: Minimum confidence to keep facts (0.0-1.0)
         """
         self.use_llm = use_llm
@@ -322,7 +324,7 @@ class ExtractionEngine:
         # Initialize extractors
         self.regex_extractor = RegexExtractor()
         self.fuzzy_extractor = FuzzyExtractor()
-        self.llm_extractor = LLMExtractor(model_name=llm_model) if use_llm else None
+        self.llm_extractor = LLMExtractor(model_name=llm_model, ollama_url=ollama_url) if use_llm else None
     
     def extract(self, text: str) -> list[ExtractedFact]:
         """Extract facts from text.
@@ -372,4 +374,3 @@ class ExtractionEngine:
 
 # Backward compatibility aliases
 CascadingExtractor = ExtractionEngine  # For existing code using old name
-

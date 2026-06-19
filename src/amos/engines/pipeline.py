@@ -58,7 +58,15 @@ class DeterministicMemoryPipeline:
         (re.compile(r"\b(?P<source>[A-Z][\w-]*)\s+is\s+related\s+to\s+(?P<target>[A-Z][\w-]*(?:\s+[A-Z][\w-]*)*)", re.I), "RELATED_TO"),
     )
     
-    def __init__(self, use_cascading: bool = False, use_tiny_llm: bool = False):
+    def __init__(
+        self,
+        use_cascading: bool = False,
+        use_tiny_llm: bool = False,
+        use_validation: bool = False,
+        llm_model: str = "phi",
+        ollama_url: str = "http://localhost:11434",
+        confidence_threshold: float = 0.6,
+    ):
         """Initialize the pipeline.
         
         Args:
@@ -69,7 +77,11 @@ class DeterministicMemoryPipeline:
         self._cascading_extractor = None
         if use_cascading:
             self._cascading_extractor = ExtractionEngine(
-                use_llm=use_tiny_llm
+                use_llm=use_tiny_llm,
+                use_validation=use_validation,
+                llm_model=llm_model,
+                ollama_url=ollama_url,
+                confidence_threshold=confidence_threshold,
             )
 
     def extract_facts(self, content: str) -> list[FactCandidate]:
@@ -134,4 +146,3 @@ class DeterministicMemoryPipeline:
     @staticmethod
     def _clean(value: str) -> str:
         return re.sub(r"\s+", " ", value.strip(" .,:;!?\"'")).strip()
-

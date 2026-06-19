@@ -61,8 +61,12 @@ class MemoryAdmissionPolicy:
         "transient",
     }
 
-    def __init__(self, threshold: float = 0.55) -> None:
+    def __init__(self, threshold: float = 0.55, type_weights: dict[str, float] | None = None) -> None:
         self.threshold = threshold
+        self.type_weights = dict(self.TYPE_WEIGHTS)
+        if type_weights:
+            for key, value in type_weights.items():
+                self.type_weights[MemoryType(key)] = value
 
     def evaluate(
         self,
@@ -75,7 +79,8 @@ class MemoryAdmissionPolicy:
         content_terms = terms(content)
         signal_hits = content_terms & self.SIGNAL_TERMS
         low_value_hits = content_terms & self.LOW_VALUE_TERMS
-        score = importance * 0.45 + confidence * 0.15 + self.TYPE_WEIGHTS[type]
+        type_weight = self.type_weights[type]
+        score = importance * 0.45 + confidence * 0.15 + type_weight
         score += min(0.15, len(signal_hits) * 0.03)
         score -= min(0.25, len(low_value_hits) * 0.05)
         score = max(0.0, min(1.0, score))
@@ -84,7 +89,7 @@ class MemoryAdmissionPolicy:
             f"importance={importance:.2f}",
             f"confidence={confidence:.2f}",
             f"type={type.value}",
-            f"type_weight={self.TYPE_WEIGHTS[type]:.2f}",
+            f"type_weight={type_weight:.2f}",
         ]
         if signal_hits:
             reasons.append("signal_terms=" + ",".join(sorted(signal_hits)))

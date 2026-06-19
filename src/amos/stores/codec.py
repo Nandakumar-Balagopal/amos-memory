@@ -26,6 +26,7 @@ def memory_from_dict(data: dict[str, Any]) -> Memory:
         confidence=float(data["confidence"]),
         retrieval_count=int(data["retrieval_count"]),
         relationship_density=float(data["relationship_density"]),
+        survivor_count=int(data.get("survivor_count", 0)),
         provenance=Provenance(**(data.get("provenance") or {})),
         created_at=timestamp(data["created_at"]),
         updated_at=timestamp(data["updated_at"]),

@@ -7,7 +7,16 @@ from ..models import Memory, utc_now
 
 
 class HeatEngine:
-    def __init__(self, decay_lambda_per_day: float = 0.1) -> None:
+    def __init__(
+        self,
+        decay_lambda_per_day: float = 0.1,
+        *,
+        recency_weight: float = 0.40,
+        frequency_weight: float = 0.25,
+        importance_weight: float = 0.20,
+        relationship_weight: float = 0.10,
+        confidence_weight: float = 0.05,
+    ) -> None:
         """Initialize heat engine with exponential decay.
         
         Args:
@@ -15,6 +24,11 @@ class HeatEngine:
                                   Higher values = faster cooling
         """
         self.decay_lambda_per_day = decay_lambda_per_day
+        self.recency_weight = recency_weight
+        self.frequency_weight = frequency_weight
+        self.importance_weight = importance_weight
+        self.relationship_weight = relationship_weight
+        self.confidence_weight = confidence_weight
 
     def calculate(self, memory: Memory, now: datetime | None = None) -> float:
         return self.explain(memory, now)["heat"]
@@ -34,8 +48,9 @@ class HeatEngine:
         """
         now = now or utc_now()
         
-        # Calculate time since last access (or creation if never accessed)
-        last_touch = memory.accessed_at or memory.created_at
+        # Calculate time since last access. For memories that have never been
+        # retrieved, updated_at is the best available last-touch signal.
+        last_touch = memory.accessed_at or memory.updated_at or memory.created_at
         age_days = max(0.0, (now - last_touch).total_seconds() / 86_400)
         
         # Exponential decay: e^(-λt)
@@ -54,11 +69,11 @@ class HeatEngine:
         # Importance (20%) provides base value
         # Graph connectivity (10%) and confidence (5%) are secondary
         heat = (
-            recency * 0.40                      # Time-based decay (dominant)
-            + frequency * 0.25                  # Access frequency
-            + memory.importance * 0.20          # Base importance
-            + memory.relationship_density * 0.10  # Graph connectivity
-            + memory.confidence * 0.05          # Data quality
+            recency * self.recency_weight
+            + frequency * self.frequency_weight
+            + memory.importance * self.importance_weight
+            + memory.relationship_density * self.relationship_weight
+            + memory.confidence * self.confidence_weight
         )
         
         return {

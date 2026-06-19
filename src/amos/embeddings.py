@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections import Counter
+import hashlib
 import numpy as np
+import re
 from typing import Protocol
 
 
@@ -127,6 +130,39 @@ class OpenAIEmbeddings:
         return self._dimension
 
 
+class HashEmbeddings:
+    """Deterministic local embeddings for tests and offline development."""
+
+    def __init__(self, dimension: int = 384):
+        self._dimension = dimension
+
+    def encode(self, text: str | list[str]) -> np.ndarray:
+        if isinstance(text, str):
+            text = [text]
+        return np.array([self._encode_one(item) for item in text], dtype=np.float32)
+
+    def _encode_one(self, text: str) -> np.ndarray:
+        vector = np.zeros(self._dimension, dtype=np.float32)
+        tokens = re.findall(r"[a-z0-9]+", text.lower())
+        features = Counter(tokens)
+        for token in tokens:
+            padded = f" {token} "
+            for index in range(max(0, len(padded) - 2)):
+                features[padded[index:index + 3]] += 1
+        for feature, weight in features.items():
+            digest = hashlib.blake2b(feature.encode(), digest_size=8).digest()
+            bucket = int.from_bytes(digest, "big") % self._dimension
+            vector[bucket] += float(weight)
+        norm = np.linalg.norm(vector)
+        if norm > 0:
+            vector /= norm
+        return vector
+
+    @property
+    def dimension(self) -> int:
+        return self._dimension
+
+
 class CachedEmbeddings:
     """Wrapper that caches embeddings to avoid recomputation."""
     
@@ -207,14 +243,19 @@ class CachedEmbeddings:
         return self.model.dimension
 
 
-def get_default_embeddings() -> EmbeddingModel:
-    """Get default embedding model (sentence-transformers).
+def build_embeddings(model_name: str = "sentence-transformers/all-MiniLM-L6-v2") -> EmbeddingModel:
+    """Build an embedding model from configuration.
     
-    Returns:
-        Cached sentence-transformers model
+    Use model_name="hash" for deterministic local embeddings in tests.
     """
+    if model_name == "hash":
+        return CachedEmbeddings(HashEmbeddings(), cache_size=10000)
     return CachedEmbeddings(
-        SentenceTransformerEmbeddings(),
+        SentenceTransformerEmbeddings(model_name),
         cache_size=10000
     )
 
+
+def get_default_embeddings() -> EmbeddingModel:
+    """Get default embedding model (sentence-transformers)."""
+    return build_embeddings()

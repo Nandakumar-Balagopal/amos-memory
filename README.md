@@ -1,6 +1,6 @@
 # AMOS: Agent Memory Operating System
 
-A production-ready memory system for AI agents featuring generational memory architecture inspired by JVM garbage collection. AMOS provides intelligent memory lifecycle management with automatic promotion, heat-based scoring, and adaptive threshold optimization.
+An agent memory system featuring generational memory architecture inspired by JVM garbage collection. AMOS provides memory lifecycle management with automatic promotion, heat-based scoring, adaptive threshold optimization, HTTP and MCP interfaces, and PostgreSQL/pgvector persistence.
 ## Architecture
 
 For a comprehensive technical overview of the system architecture, see [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -90,6 +90,25 @@ python -m amos
 ```
 
 Server runs on `http://127.0.0.1:8080`
+
+### CLI
+```bash
+amos health
+amos assess "Nandu prefers concise updates" --type PREFERENCE --importance 0.8
+amos remember "Nandu is building AMOS" --tenant-id demo --type EPISODE --importance 0.9
+amos recall "What is Nandu building?" --tenant-id demo
+amos context "What should I know about Nandu?" --tenant-id demo --token-budget 120
+amos scheduler-run --tenant-id demo
+```
+
+### Development Workflow
+```bash
+make test
+make test-postgres
+make docker-build
+```
+
+`make test-postgres` starts PostgreSQL on host port `55432` by default and uses deterministic hash embeddings for repeatable local integration tests. Override with `AMOS_POSTGRES_PORT` or `POSTGRES_DSN` if needed.
 
 ## API Examples
 

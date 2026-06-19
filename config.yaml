@@ -29,10 +29,10 @@ storage:
 # =============================================================================
 extraction:
   # Enable LLM extraction (requires Ollama)
-  use_llm: true
+  use_llm: false
   
   # Enable LLM validation of extracted facts
-  use_validation: true
+  use_validation: false
   
   # LLM model for extraction (phi, llama2, mistral)
   llm_model: "phi"
@@ -43,8 +43,8 @@ extraction:
   # Minimum confidence threshold (0.0-1.0)
   confidence_threshold: 0.6
   
-  # Enable cascading extraction in pipeline (MUST be true for LLM extraction)
-  use_cascading: true
+  # Enable cascading extraction in pipeline (required for LLM extraction)
+  use_cascading: false
 
 # =============================================================================
 # RETRIEVAL CONFIGURATION

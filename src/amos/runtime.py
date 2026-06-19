@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from .config import config
+from .config import load_config
+from .embeddings import build_embeddings
+from .engines.adaptive_scheduler import ThresholdConfig
+from .engines.heat import HeatEngine
 from .service import Amos
 
 
@@ -37,6 +40,8 @@ def build_amos(
         # Override specific settings
         amos = build_amos(use_tiny_llm=True, use_adaptive_scheduler=False)
     """
+    config = load_config()
+
     # Use config values if not explicitly provided
     if use_cascading_extraction is None:
         use_cascading_extraction = config.extraction.use_cascading
@@ -48,15 +53,46 @@ def build_amos(
         async_workers = config.async_processing.workers
     
     backend = config.storage.backend.lower()
+    heat = HeatEngine(
+        decay_lambda_per_day=config.lifecycle.heat.decay_lambda_per_day,
+        importance_weight=config.lifecycle.heat.importance_weight,
+        frequency_weight=config.lifecycle.heat.frequency_weight,
+        recency_weight=config.lifecycle.heat.recency_weight,
+        relationship_weight=config.lifecycle.heat.relationship_weight,
+        confidence_weight=config.lifecycle.heat.confidence_weight,
+    )
+    adaptive_thresholds = ThresholdConfig(
+        active_to_survivor=config.lifecycle.thresholds.survivor_promotion,
+        survivor_to_durable=config.lifecycle.thresholds.durable_promotion,
+        archive_threshold=config.lifecycle.thresholds.survivor_archive,
+        delete_threshold=config.lifecycle.thresholds.archive_deletion,
+    )
+    retrieval_weights = {
+        "semantic_weight": config.retrieval.weights.semantic,
+        "heat_weight": config.retrieval.weights.heat,
+        "recency_weight": config.retrieval.weights.recency,
+        "graph_weight": config.retrieval.weights.graph,
+        "diversity_weight": config.retrieval.weights.diversity,
+    }
+    service_kwargs = {
+        "use_cascading_extraction": use_cascading_extraction,
+        "use_tiny_llm": use_tiny_llm,
+        "extraction_use_validation": config.extraction.use_validation,
+        "extraction_llm_model": config.extraction.llm_model,
+        "extraction_ollama_url": config.extraction.ollama_url,
+        "extraction_confidence_threshold": config.extraction.confidence_threshold,
+        "enable_async_processing": enable_async_processing,
+        "async_workers": async_workers,
+        "use_adaptive_scheduler": use_adaptive_scheduler,
+        "heat": heat,
+        "adaptive_thresholds": adaptive_thresholds,
+        "admission_threshold": config.admission.threshold,
+        "admission_type_weights": config.admission.type_weights,
+        "retrieval_weights": retrieval_weights,
+    }
     
     if backend == "memory":
-        return Amos(
-            use_cascading_extraction=use_cascading_extraction,
-            use_tiny_llm=use_tiny_llm,
-            enable_async_processing=enable_async_processing,
-            async_workers=async_workers,
-            use_adaptive_scheduler=use_adaptive_scheduler,
-        )
+        return Amos(**service_kwargs)
     
     if backend == "postgres":
         from .stores.postgres import PostgresStorage
@@ -64,18 +100,14 @@ def build_amos(
         postgres = PostgresStorage(
             dsn=config.storage.postgres.dsn,
             initialize=config.storage.postgres.initialize,
+            embedding_model=build_embeddings(config.embeddings.model),
         )
         return Amos(
             memories=postgres,
             timeline=postgres,
             graph=postgres,
             events=postgres,
-            use_cascading_extraction=use_cascading_extraction,
-            use_tiny_llm=use_tiny_llm,
-            enable_async_processing=enable_async_processing,
-            async_workers=async_workers,
-            use_adaptive_scheduler=use_adaptive_scheduler,
+            **service_kwargs,
         )
     
     raise ValueError(f"unsupported storage backend: {backend} (supported: memory, postgres)")
-

@@ -14,6 +14,7 @@ from .engines import (
     TemporalTruthEngine,
 )
 from .engines.adaptive_scheduler import AdaptiveScheduler
+from .engines.adaptive_scheduler import ThresholdConfig as AdaptiveThresholdConfig
 from .models import (
     CompiledContext,
     DomainEvent,
@@ -42,11 +43,20 @@ class Amos:
         timeline: TimelineStore | None = None,
         graph: GraphStore | None = None,
         events: EventBus | None = None,
-        use_cascading_extraction: bool = True,
-        use_tiny_llm: bool = True,
+        use_cascading_extraction: bool = False,
+        use_tiny_llm: bool = False,
+        extraction_use_validation: bool = False,
+        extraction_llm_model: str = "phi",
+        extraction_ollama_url: str = "http://localhost:11434",
+        extraction_confidence_threshold: float = 0.6,
         enable_async_processing: bool = False,
         async_workers: int = 1,
-        use_adaptive_scheduler: bool = False,
+        use_adaptive_scheduler: bool = True,
+        heat: HeatEngine | None = None,
+        adaptive_thresholds: AdaptiveThresholdConfig | None = None,
+        admission_threshold: float = 0.55,
+        admission_type_weights: dict[str, float] | None = None,
+        retrieval_weights: dict[str, float] | None = None,
     ) -> None:
         default = InMemoryStorage()
         self.memories = memories or default
@@ -54,21 +64,29 @@ class Amos:
         self.graph = graph or default
         self.events = events or default
         self.temporal = TemporalTruthEngine(self.timeline)
-        self.heat = HeatEngine()
+        self.heat = heat or HeatEngine()
         
         # Use adaptive or fixed scheduler
         if use_adaptive_scheduler:
-            self.scheduler = AdaptiveScheduler(self.heat)
+            self.scheduler = AdaptiveScheduler(self.heat, config=adaptive_thresholds)
         else:
             self.scheduler = GenerationalScheduler(self.heat)
         
         self.retrieval = RetrievalRouter()
+        self.retrieval_weights = retrieval_weights or {}
         self.compiler = ContextCompiler()
         self.pipeline = DeterministicMemoryPipeline(
             use_cascading=use_cascading_extraction,
-            use_tiny_llm=use_tiny_llm
+            use_tiny_llm=use_tiny_llm,
+            use_validation=extraction_use_validation,
+            llm_model=extraction_llm_model,
+            ollama_url=extraction_ollama_url,
+            confidence_threshold=extraction_confidence_threshold,
         )
-        self.admission = MemoryAdmissionPolicy()
+        self.admission = MemoryAdmissionPolicy(
+            threshold=admission_threshold,
+            type_weights=admission_type_weights,
+        )
         
         # Async processing
         self.async_processor: AsyncProcessor | None = None
@@ -172,7 +190,7 @@ class Amos:
         
         # Use hybrid retrieval if PostgresStorage is available
         if isinstance(self.memories, PostgresStorage):
-            memories = self.memories.search_hybrid(tenant_id, query, limit)
+            memories = self.memories.search_hybrid(tenant_id, query, limit, **self.retrieval_weights)
             # Convert to RecallResult format
             candidates = [
                 RecallResult(
